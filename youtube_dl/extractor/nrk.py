@@ -1,4 +1,4 @@
-# encoding: utf-8
+# coding: utf-8
 from __future__ import unicode_literals
 
 import re
@@ -14,16 +14,6 @@ from ..utils import (
 
 
 class NRKBaseIE(InfoExtractor):
-    def _extract_formats(self, manifest_url, video_id, fatal=True):
-        formats = []
-        formats.extend(self._extract_f4m_formats(
-            manifest_url + '?hdcore=3.5.0&plugin=aasp-3.5.0.151.81',
-            video_id, f4m_id='hds', fatal=fatal))
-        formats.extend(self._extract_m3u8_formats(manifest_url.replace(
-            'akamaihd.net/z/', 'akamaihd.net/i/').replace('/manifest.f4m', '/master.m3u8'),
-            video_id, 'mp4', 'm3u8_native', m3u8_id='hls', fatal=fatal))
-        return formats
-
     def _real_extract(self, url):
         video_id = self._match_id(url)
 
@@ -45,7 +35,7 @@ class NRKBaseIE(InfoExtractor):
                 asset_url = asset.get('url')
                 if not asset_url:
                     continue
-                formats = self._extract_formats(asset_url, video_id, fatal=False)
+                formats = self._extract_akamai_formats(asset_url, video_id)
                 if not formats:
                     continue
                 self._sort_formats(formats)
@@ -55,7 +45,9 @@ class NRKBaseIE(InfoExtractor):
                 for subtitle in ('webVtt', 'timedText'):
                     subtitle_url = asset.get('%sSubtitlesUrl' % subtitle)
                     if subtitle_url:
-                        subtitles.setdefault('no', []).append({'url': subtitle_url})
+                        subtitles.setdefault('no', []).append({
+                            'url': compat_urllib_parse_unquote(subtitle_url)
+                        })
                 entries.append({
                     'id': asset.get('carrierId') or entry_id,
                     'title': entry_title,
@@ -67,7 +59,7 @@ class NRKBaseIE(InfoExtractor):
         if not entries:
             media_url = data.get('mediaUrl')
             if media_url:
-                formats = self._extract_formats(media_url, video_id)
+                formats = self._extract_akamai_formats(media_url, video_id)
                 self._sort_formats(formats)
                 duration = parse_duration(data.get('duration'))
                 entries = [{
@@ -121,7 +113,17 @@ class NRKBaseIE(InfoExtractor):
 
 
 class NRKIE(NRKBaseIE):
-    _VALID_URL = r'(?:nrk:|https?://(?:www\.)?nrk\.no/video/PS\*)(?P<id>\d+)'
+    _VALID_URL = r'''(?x)
+                        (?:
+                            nrk:|
+                            https?://
+                                (?:
+                                    (?:www\.)?nrk\.no/video/PS\*|
+                                    v8-psapi\.nrk\.no/mediaelement/
+                                )
+                            )
+                            (?P<id>[^/?#&]+)
+                        '''
     _API_HOST = 'v8.psapi.nrk.no'
     _TESTS = [{
         # video
@@ -145,6 +147,12 @@ class NRKIE(NRKBaseIE):
             'description': 'md5:a621f5cc1bd75c8d5104cb048c6b8568',
             'duration': 20,
         }
+    }, {
+        'url': 'nrk:ecc1b952-96dc-4a98-81b9-5296dc7a98d9',
+        'only_matching': True,
+    }, {
+        'url': 'https://v8-psapi.nrk.no/mediaelement/ecc1b952-96dc-4a98-81b9-5296dc7a98d9',
+        'only_matching': True,
     }]
 
 
@@ -161,7 +169,7 @@ class NRKTVIE(NRKBaseIE):
             'ext': 'mp4',
             'title': '20 spørsmål 23.05.2014',
             'description': 'md5:bdea103bc35494c143c6a9acdd84887a',
-            'duration': 1741.52,
+            'duration': 1741,
         },
     }, {
         'url': 'https://tv.nrk.no/program/mdfp15000514',
@@ -171,7 +179,7 @@ class NRKTVIE(NRKBaseIE):
             'ext': 'mp4',
             'title': 'Grunnlovsjubiléet - Stor ståhei for ingenting 24.05.2014',
             'description': 'md5:89290c5ccde1b3a24bb8050ab67fe1db',
-            'duration': 4605.08,
+            'duration': 4605,
         },
     }, {
         # single playlist video
@@ -258,30 +266,34 @@ class NRKPlaylistIE(InfoExtractor):
 
 class NRKSkoleIE(InfoExtractor):
     IE_DESC = 'NRK Skole'
-    _VALID_URL = r'https?://(?:www\.)?nrk\.no/skole/klippdetalj?.*\btopic=(?P<id>[^/?#&]+)'
+    _VALID_URL = r'https?://(?:www\.)?nrk\.no/skole/?\?.*\bmediaId=(?P<id>\d+)'
 
     _TESTS = [{
-        'url': 'http://nrk.no/skole/klippdetalj?topic=nrk:klipp/616532',
-        'md5': '04cd85877cc1913bce73c5d28a47e00f',
+        'url': 'https://www.nrk.no/skole/?page=search&q=&mediaId=14099',
+        'md5': '6bc936b01f9dd8ed45bc58b252b2d9b6',
         'info_dict': {
             'id': '6021',
-            'ext': 'flv',
+            'ext': 'mp4',
             'title': 'Genetikk og eneggede tvillinger',
             'description': 'md5:3aca25dcf38ec30f0363428d2b265f8d',
             'duration': 399,
         },
     }, {
-        'url': 'http://www.nrk.no/skole/klippdetalj?topic=nrk%3Aklipp%2F616532#embed',
-        'only_matching': True,
-    }, {
-        'url': 'http://www.nrk.no/skole/klippdetalj?topic=urn:x-mediadb:21379',
+        'url': 'https://www.nrk.no/skole/?page=objectives&subject=naturfag&objective=K15114&mediaId=19355',
         'only_matching': True,
     }]
 
     def _real_extract(self, url):
-        video_id = compat_urllib_parse_unquote(self._match_id(url))
+        video_id = self._match_id(url)
 
-        webpage = self._download_webpage(url, video_id)
+        webpage = self._download_webpage(
+            'https://mimir.nrk.no/plugin/1.0/static?mediaId=%s' % video_id,
+            video_id)
 
-        nrk_id = self._search_regex(r'data-nrk-id=["\'](\d+)', webpage, 'nrk id')
+        nrk_id = self._parse_json(
+            self._search_regex(
+                r'<script[^>]+type=["\']application/json["\'][^>]*>({.+?})</script>',
+                webpage, 'application json'),
+            video_id)['activeMedia']['psId']
+
         return self.url_result('nrk:%s' % nrk_id)
